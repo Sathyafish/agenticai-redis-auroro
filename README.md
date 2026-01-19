@@ -25,19 +25,26 @@ This project demonstrates a scalable agentic AI architecture with two specialize
 
 ## 🏗️ Architecture
 
-```
-┌─────────────┐         ┌──────────────────┐         ┌─────────────┐
-│   Client    │────────▶│  Planner Agent   │────────▶│   Redis     │
-│   (HTTP)    │         │  (FastAPI/ALB)   │         │   (STM)     │
-└─────────────┘         └──────────────────┘         └─────────────┘
-                                │                             │
-                                │                             │
-                                ▼                             ▼
-                        ┌──────────────────┐         ┌─────────────┐
-                        │ Aurora PostgreSQL│◀────────│   Worker    │
-                        │ + pgvector (LTM) │         │   Agent     │
-                        └──────────────────┘         └─────────────┘
-```
+![AWS Architecture Diagram showing VPC with public/private subnets, Load Balancer, ECS Cluster with Planner and Worker containers, Aurora PostgreSQL, Redis, Secrets Manager, and CloudWatch Logs](assets/images/architecture-diagram.png)
+
+The system follows a microservices architecture deployed on AWS:
+
+**Data Flow:**
+1. **User** → HTTP requests to Application Load Balancer
+2. **Load Balancer** → Routes traffic to Planner Agent (port 8080)
+3. **ECR** → Provides Docker images for both Planner and Worker containers
+4. **Planner Agent** → Creates plans, stores in Aurora, queues tasks to Redis
+5. **Worker Agent** → Consumes tasks from Redis, executes steps, updates Aurora
+6. **Aurora PostgreSQL** → Stores durable state and semantic memories (pgvector)
+7. **Redis** → Handles task queue and scratchpad memory (STM)
+8. **Secrets Manager** → Securely provides DB credentials to ECS tasks
+9. **CloudWatch Logs** → Centralized logging for all services
+
+**Network Security:**
+- **Public Subnets**: Load Balancer only (internet-facing)
+- **Private Subnets**: All ECS tasks, Aurora, Redis (isolated)
+- **NAT Gateway**: Enables private subnet outbound access (ECR, Secrets Manager, CloudWatch)
+- **Security Groups**: Restrict traffic between components
 
 ### Memory Architecture
 
@@ -66,6 +73,10 @@ This project demonstrates a scalable agentic AI architecture with two specialize
 
 ```
 agenticai-redis-auroro/
+├── assets/
+│   └── images/               # Documentation images
+│       ├── architecture-diagram.png  # AWS architecture diagram
+│       └── README.md         # Image specifications
 ├── agentic-code/
 │   ├── services/
 │   │   ├── common/           # Shared modules
@@ -83,10 +94,12 @@ agenticai-redis-auroro/
 │   │       ├── main.py       # Task processor
 │   │       └── requirements.txt
 │   ├── terraform/            # Infrastructure
-│   │   ├── main.tf           # VPC, ECS, Redis, Aurora
+│   │   ├── main.tf           # VPC, ECS, Redis, Aurora, Secrets Manager
 │   │   ├── outputs.tf        # URLs, endpoints
-│   │   └── variables.tf      # Configuration
+│   │   ├── variables.tf      # Configuration
+│   │   └── terraform.tfvars.example  # Template for credentials
 │   └── README.md
+├── .gitignore                # Excludes secrets and temp files
 └── README.md
 ```
 
