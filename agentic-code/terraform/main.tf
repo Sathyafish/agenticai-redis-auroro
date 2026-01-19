@@ -363,6 +363,34 @@ resource "aws_iam_role" "task_role" {
   tags               = local.tags
 }
 
+# Minimal Bedrock invoke permissions
+resource "aws_iam_policy" "bedrock_invoke" {
+  name = "${local.name}-bedrock-invoke"
+  path = "/"
+  policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Sid    = "InvokeBedrockModels",
+        Effect = "Allow",
+        Action = [
+          "bedrock:InvokeModel",
+          "bedrock:InvokeModelWithResponseStream",
+          "bedrock:ListFoundationalModels",
+          "bedrock:GetModel"
+        ],
+        Resource = "*"
+      }
+    ]
+  })
+  tags = local.tags
+}
+
+resource "aws_iam_role_policy_attachment" "task_bedrock_invoke_attach" {
+  role       = aws_iam_role.task_role.name
+  policy_arn = aws_iam_policy.bedrock_invoke.arn
+}
+
 # -----------------------------
 # CloudWatch Logs
 # -----------------------------

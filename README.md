@@ -66,6 +66,7 @@ The system follows a microservices architecture deployed on AWS:
 - **API Framework**: FastAPI (Python 3.11+)
 - **Message Queue**: ElastiCache Redis (cache.t4g.micro)
 - **Vector Database**: Aurora PostgreSQL Serverless v2 (16.6) with pgvector
+- **LLM Integration**: AWS Bedrock (with IAM permissions configured)
 - **Infrastructure as Code**: Terraform
 - **Containerization**: Docker
 
@@ -152,7 +153,10 @@ This creates:
 - ECS Fargate cluster with task definitions
 - Application Load Balancer
 - ECR repositories
-- Security groups and IAM roles with Secrets Manager access
+- Security groups and IAM roles with:
+  - Secrets Manager read access
+  - Bedrock model invocation permissions
+  - CloudWatch Logs write access
 
 ### Step 3: Build & Push Docker Images
 
@@ -382,6 +386,41 @@ aurora_min_acu        = 0.5
 aurora_max_acu        = 2
 ```
 
+### AWS Bedrock Integration
+
+The ECS task role includes permissions to invoke AWS Bedrock models. Both Planner and Worker agents can use Bedrock for:
+- Text generation (planning, reasoning)
+- Embeddings (replacing demo embeddings)
+- Model invocation with response streaming
+
+**Supported Bedrock Actions:**
+- `bedrock:InvokeModel` - Synchronous model invocation
+- `bedrock:InvokeModelWithResponseStream` - Streaming responses
+- `bedrock:ListFoundationalModels` - Discover available models
+- `bedrock:GetModel` - Retrieve model metadata
+
+**Example Usage (Python):**
+```python
+import boto3
+
+bedrock = boto3.client('bedrock-runtime', region_name='us-west-2')
+
+# Invoke Claude 3 Sonnet
+response = bedrock.invoke_model(
+    modelId='anthropic.claude-3-sonnet-20240229-v1:0',
+    body=json.dumps({
+        "anthropic_version": "bedrock-2023-05-31",
+        "max_tokens": 1024,
+        "messages": [{"role": "user", "content": "Explain this plan..."}]
+    })
+)
+```
+
+**Cost Considerations:**
+- Bedrock charges per token (input/output)
+- Claude 3 Sonnet: ~$3 per 1M input tokens, ~$15 per 1M output tokens
+- Enable CloudWatch metrics to monitor usage
+
 ## 🔒 Security Considerations
 
 ### Current Implementation
@@ -394,6 +433,7 @@ aurora_max_acu        = 2
 
 ✅ **IAM Security**:
 - Task execution role has limited permissions to read secrets
+- Task role has permissions for Bedrock model invocation
 - Services run in private subnets with NAT gateway for outbound access
 - Security groups restrict network access to required ports only
 
@@ -471,7 +511,7 @@ aws logs tail /ecs/agentic-sample-worker --follow --region us-west-2
      - Sentence Transformers (self-hosted)
 
 2. **Simple Planning**: Hardcoded 3-step plans
-   - Integrate LLM-based planning (GPT-4, Claude, Bedrock)
+   - Integrate LLM-based planning (Bedrock is IAM-ready, needs implementation)
    - Implement LangGraph for complex workflows
    - Add dynamic plan adjustment based on execution feedback
 
@@ -482,14 +522,15 @@ aws logs tail /ecs/agentic-sample-worker --follow --region us-west-2
 
 ### Planned Enhancements
 
-- [ ] Replace demo embeddings with Bedrock Titan
-- [ ] Integrate LLM for intelligent planning (Claude 3 Sonnet)
+- [✅] **Bedrock IAM Permissions**: Already configured for model invocation
+- [ ] Replace demo embeddings with Bedrock Titan Embeddings
+- [ ] Integrate LLM for intelligent planning (Claude 3 Sonnet via Bedrock)
 - [ ] Add vector index optimization (HNSW vs IVFFlat)
 - [ ] Implement step retry logic with exponential backoff
 - [ ] Add WebSocket support for real-time updates
 - [ ] Create admin dashboard (React + Vite)
 - [ ] Add authentication/authorization (Cognito)
-- [ ] Implement cost tracking and budget alerts
+- [ ] Implement cost tracking and budget alerts (including Bedrock usage)
 - [ ] Add distributed tracing (X-Ray)
 - [ ] Support multi-tenancy
 
