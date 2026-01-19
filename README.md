@@ -362,7 +362,11 @@ aws ecs update-service --cluster agentic-sample-cluster \
 - `AURORA_USER`: Database username (from Secrets Manager)
 - `AURORA_PASSWORD`: Database password (from Secrets Manager)
 - `QUEUE_KEY`: Redis queue key (agent:queue)
-- `EMBED_DIM`: Embedding dimension (384)
+- `USE_BEDROCK`: Enable Bedrock integration (true)
+- `BEDROCK_REGION`: AWS region for Bedrock (from var.aws_region)
+- `EMBEDDING_MODEL_ID`: Bedrock embedding model (amazon.titan-embed-text-v2:0)
+- `PLANNER_MODEL_ID`: Bedrock LLM model for planning (configurable)
+- `EMBED_DIM`: Embedding dimension (1024 for Titan v2)
 
 **Worker Agent only:**
 - `POLL_SECONDS`: Task polling interval (default: 2)
@@ -384,16 +388,33 @@ redis_node_type       = "cache.t4g.micro"
 aurora_engine_version = "16.6"
 aurora_min_acu        = 0.5
 aurora_max_acu        = 2
+
+# Bedrock Configuration
+planner_model_id      = "us.anthropic.claude-3-5-sonnet-20241022-v2:0"
 ```
+
+> **Note**: The `planner_model_id` must match a model you've enabled in your AWS Bedrock console. Visit the [Bedrock console](https://console.aws.amazon.com/bedrock/) to request model access if needed.
 
 ### AWS Bedrock Integration
 
-The ECS task role includes permissions to invoke AWS Bedrock models. Both Planner and Worker agents can use Bedrock for:
-- Text generation (planning, reasoning)
-- Embeddings (replacing demo embeddings)
-- Model invocation with response streaming
+The ECS tasks are pre-configured to use AWS Bedrock for both LLM planning and embeddings:
 
-**Supported Bedrock Actions:**
+**Configured Models:**
+- **LLM**: Claude 3.5 Sonnet (`us.anthropic.claude-3-5-sonnet-20241022-v2:0`)
+  - Configurable via `planner_model_id` variable in `terraform.tfvars`
+  - Used for intelligent planning and reasoning
+- **Embeddings**: Titan Text Embeddings v2 (`amazon.titan-embed-text-v2:0`)
+  - 1024-dimensional embeddings
+  - Replaces demo hash-based embeddings
+
+**Environment Variables (Pre-configured):**
+- `USE_BEDROCK=true` - Enables Bedrock integration
+- `BEDROCK_REGION` - Set to your AWS region
+- `EMBEDDING_MODEL_ID` - Titan v2 model ID
+- `PLANNER_MODEL_ID` - Your chosen LLM model
+- `EMBED_DIM=1024` - Titan v2 embedding dimension
+
+**IAM Permissions Included:**
 - `bedrock:InvokeModel` - Synchronous model invocation
 - `bedrock:InvokeModelWithResponseStream` - Streaming responses
 - `bedrock:ListFoundationalModels` - Discover available models
@@ -402,24 +423,44 @@ The ECS task role includes permissions to invoke AWS Bedrock models. Both Planne
 **Example Usage (Python):**
 ```python
 import boto3
+import json
+import os
 
-bedrock = boto3.client('bedrock-runtime', region_name='us-west-2')
+bedrock = boto3.client('bedrock-runtime', region_name=os.getenv('BEDROCK_REGION'))
 
-# Invoke Claude 3 Sonnet
+# Invoke the configured planner model
 response = bedrock.invoke_model(
-    modelId='anthropic.claude-3-sonnet-20240229-v1:0',
+    modelId=os.getenv('PLANNER_MODEL_ID'),
     body=json.dumps({
         "anthropic_version": "bedrock-2023-05-31",
         "max_tokens": 1024,
-        "messages": [{"role": "user", "content": "Explain this plan..."}]
+        "messages": [{"role": "user", "content": "Create a plan for..."}]
     })
+)
+
+# Generate embeddings
+embedding_response = bedrock.invoke_model(
+    modelId=os.getenv('EMBEDDING_MODEL_ID'),
+    body=json.dumps({"inputText": "Document to embed"})
 )
 ```
 
+**Prerequisites:**
+1. **Enable Model Access** in AWS Bedrock console:
+   - Navigate to Bedrock → Model access
+   - Request access to Claude 3.5 Sonnet and Titan Embeddings
+   - Wait for approval (usually instant for Titan, may take time for Claude)
+
+2. **Update Database Schema** if migrating from demo embeddings:
+   ```sql
+   -- Update vector dimension from 384 to 1024
+   ALTER TABLE semantic_memories ALTER COLUMN embedding TYPE vector(1024);
+   ```
+
 **Cost Considerations:**
-- Bedrock charges per token (input/output)
-- Claude 3 Sonnet: ~$3 per 1M input tokens, ~$15 per 1M output tokens
-- Enable CloudWatch metrics to monitor usage
+- **Claude 3.5 Sonnet**: ~$3 per 1M input tokens, ~$15 per 1M output tokens
+- **Titan Embeddings v2**: ~$0.10 per 1M input tokens
+- Monitor usage via CloudWatch metrics and AWS Cost Explorer
 
 ## 🔒 Security Considerations
 
@@ -503,12 +544,10 @@ aws logs tail /ecs/agentic-sample-worker --follow --region us-west-2
 
 ### Current Limitations
 
-1. **Demo Embeddings**: Uses deterministic hash-based embeddings
-   - Replace `services/common/embeddings.py` with real embedding service:
-     - AWS Bedrock Titan Embeddings
-     - OpenAI Embeddings API
-     - Cohere Embeddings
-     - Sentence Transformers (self-hosted)
+1. **Embeddings Configuration**: Infrastructure is ready for Bedrock Titan v2
+   - Environment variables configured for 1024-dim embeddings
+   - Update `services/common/embeddings.py` to call Bedrock instead of demo hash
+   - Update database schema to use `vector(1024)` instead of `vector(384)`
 
 2. **Simple Planning**: Hardcoded 3-step plans
    - Integrate LLM-based planning (Bedrock is IAM-ready, needs implementation)

@@ -22,6 +22,10 @@ aurora_engine_version = "16.6"
 aurora_min_acu        = 0.5
 aurora_max_acu        = 2
 
+# AWS Bedrock Configuration
+# Replace with your enabled model ID from Bedrock console
+planner_model_id = "us.anthropic.claude-3-5-sonnet-20241022-v2:0"
+
 # VPC CIDR Configuration (optional - defaults provided)
 # vpc_cidr              = "10.10.0.0/16"
 # public_subnet_a_cidr  = "10.10.1.0/24"

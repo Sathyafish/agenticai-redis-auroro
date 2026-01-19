@@ -469,7 +469,11 @@ resource "aws_ecs_task_definition" "planner" {
         { name = "AURORA_HOST", value = aws_rds_cluster.aurora.endpoint },
         { name = "AURORA_PORT", value = "5432" },
         { name = "QUEUE_KEY", value = "agent:queue" },
-        { name = "EMBED_DIM", value = "384" }
+        { name = "USE_BEDROCK", value = "true" },
+        { name = "BEDROCK_REGION", value = var.aws_region },
+        { name = "EMBEDDING_MODEL_ID", value = "amazon.titan-embed-text-v2:0" },
+        { name = "PLANNER_MODEL_ID", value = var.planner_model_id },
+        { name = "EMBED_DIM", value = "1024" }
       ]
       secrets = [
         { name = "AURORA_DB", valueFrom = "${aws_secretsmanager_secret.db.arn}:dbname::" },
@@ -511,7 +515,11 @@ resource "aws_ecs_task_definition" "worker" {
         { name = "AURORA_PORT", value = "5432" },
         { name = "QUEUE_KEY", value = "agent:queue" },
         { name = "POLL_SECONDS", value = "2" },
-        { name = "EMBED_DIM", value = "384" }
+        { name = "USE_BEDROCK", value = "true" },
+        { name = "BEDROCK_REGION", value = var.aws_region },
+        { name = "EMBEDDING_MODEL_ID", value = "amazon.titan-embed-text-v2:0" },
+        { name = "PLANNER_MODEL_ID", value = var.planner_model_id },
+        { name = "EMBED_DIM", value = "1024" }
       ]
       secrets = [
         { name = "AURORA_DB", valueFrom = "${aws_secretsmanager_secret.db.arn}:dbname::" },

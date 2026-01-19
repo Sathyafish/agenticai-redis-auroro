@@ -52,3 +52,10 @@ variable "db_name" {
   description = "Aurora PostgreSQL database name"
   default     = "agentic"
 }
+
+# Bedrock model configuration
+variable "planner_model_id" {
+  type        = string
+  description = "AWS Bedrock model ID for the planner agent (e.g., Claude 3.5 Sonnet)"
+  default     = "us.anthropic.claude-3-5-sonnet-20241022-v2:0"
+}
