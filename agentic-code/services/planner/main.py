@@ -4,6 +4,7 @@ from fastapi import FastAPI
 
 from services.common.db import fetch_run, init_db, insert_run, insert_step
 from services.common.embeddings import embed_text
+from services.common.llm import call_planner_model
 from services.common.memory import ShortTermMemory
 from services.common.models import RunStatusResponse, SearchResponse, StartRunRequest, StartRunResponse
 from services.common.vector_store import semantic_search
@@ -13,11 +14,22 @@ stm = ShortTermMemory()
 
 
 def plan_steps(goal: str) -> list[str]:
-    """Simple planning stub.
+    """Generate an execution plan using Bedrock LLM.
 
-    Replace with Bedrock/OpenAI/LangGraph/etc.
+    Falls back to deterministic steps if Bedrock is disabled.
     """
-
+    text = call_planner_model(goal, max_tokens=512, temperature=0.0)
+    
+    # attempt to split into lines if model returned multiple lines
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    
+    if len(lines) >= 1:
+        # ensure at least 3 steps; if fewer, pad with sensible defaults
+        while len(lines) < 3:
+            lines.append("Produce a final response payload")
+        return lines[:5]  # cap at 5 steps
+    
+    # fallback if model returned empty or invalid response
     return [
         f"Clarify the objective: {goal}",
         "Draft a short execution checklist",

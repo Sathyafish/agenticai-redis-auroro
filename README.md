@@ -82,6 +82,7 @@ agenticai-redis-auroro/
 │   │   ├── common/           # Shared modules
 │   │   │   ├── db.py         # Aurora database operations
 │   │   │   ├── embeddings.py # Text embedding (demo impl)
+│   │   │   ├── llm.py        # Bedrock LLM integration
 │   │   │   ├── memory.py     # Redis STM interface
 │   │   │   ├── models.py     # Pydantic data models
 │   │   │   └── vector_store.py # pgvector operations
@@ -403,9 +404,11 @@ The ECS tasks are pre-configured to use AWS Bedrock for both LLM planning and em
 - **LLM**: Claude 3.5 Sonnet (`us.anthropic.claude-3-5-sonnet-20241022-v2:0`)
   - Configurable via `planner_model_id` variable in `terraform.tfvars`
   - Used for intelligent planning and reasoning
+  - **Implementation**: `services/common/llm.py` provides `call_planner_model()` function
+  - **Usage**: `services/planner/main.py` calls Bedrock to generate execution plans
 - **Embeddings**: Titan Text Embeddings v2 (`amazon.titan-embed-text-v2:0`)
   - 1024-dimensional embeddings
-  - Replaces demo hash-based embeddings
+  - Configured but not yet implemented (still using demo embeddings)
 
 **Environment Variables (Pre-configured):**
 - `USE_BEDROCK=true` - Enables Bedrock integration
@@ -420,7 +423,23 @@ The ECS tasks are pre-configured to use AWS Bedrock for both LLM planning and em
 - `bedrock:ListFoundationalModels` - Discover available models
 - `bedrock:GetModel` - Retrieve model metadata
 
-**Example Usage (Python):**
+**Implementation:**
+
+The planner agent uses `services/common/llm.py` to call Bedrock:
+
+```python
+# services/common/llm.py
+from services.common.llm import call_planner_model
+
+# Generate a plan using Claude 3.5 Sonnet
+plan_text = call_planner_model(
+    prompt="Create a plan to analyze Q1 sales data",
+    max_tokens=512,
+    temperature=0.0
+)
+```
+
+**Low-Level Bedrock API (for reference):**
 ```python
 import boto3
 import json
@@ -432,16 +451,13 @@ bedrock = boto3.client('bedrock-runtime', region_name=os.getenv('BEDROCK_REGION'
 response = bedrock.invoke_model(
     modelId=os.getenv('PLANNER_MODEL_ID'),
     body=json.dumps({
-        "anthropic_version": "bedrock-2023-05-31",
-        "max_tokens": 1024,
-        "messages": [{"role": "user", "content": "Create a plan for..."}]
+        "messages": [
+            {"role": "system", "content": [{"type": "text", "text": "You are a planning agent..."}]},
+            {"role": "user", "content": [{"type": "text", "text": "Create a plan..."}]}
+        ],
+        "max_tokens": 512,
+        "temperature": 0.0
     })
-)
-
-# Generate embeddings
-embedding_response = bedrock.invoke_model(
-    modelId=os.getenv('EMBEDDING_MODEL_ID'),
-    body=json.dumps({"inputText": "Document to embed"})
 )
 ```
 
@@ -544,26 +560,22 @@ aws logs tail /ecs/agentic-sample-worker --follow --region us-west-2
 
 ### Current Limitations
 
-1. **Embeddings Configuration**: Infrastructure is ready for Bedrock Titan v2
+1. **Embeddings**: Infrastructure is ready for Bedrock Titan v2
    - Environment variables configured for 1024-dim embeddings
    - Update `services/common/embeddings.py` to call Bedrock instead of demo hash
    - Update database schema to use `vector(1024)` instead of `vector(384)`
 
-2. **Simple Planning**: Hardcoded 3-step plans
-   - Integrate LLM-based planning (Bedrock is IAM-ready, needs implementation)
-   - Implement LangGraph for complex workflows
-   - Add dynamic plan adjustment based on execution feedback
-
-3. **Basic Step Execution**: Stub implementation
+2. **Step Execution**: Stub implementation in worker
    - Add tool use capabilities (web search, API calls, data processing)
    - Implement reasoning loops (ReAct, Chain-of-Thought)
    - Add human-in-the-loop approval gates
 
 ### Planned Enhancements
 
-- [✅] **Bedrock IAM Permissions**: Already configured for model invocation
+- [✅] **Bedrock IAM Permissions**: Configured for model invocation
+- [✅] **LLM-Based Planning**: Claude 3.5 Sonnet integration via `services/common/llm.py`
 - [ ] Replace demo embeddings with Bedrock Titan Embeddings
-- [ ] Integrate LLM for intelligent planning (Claude 3 Sonnet via Bedrock)
+- [ ] Implement LangGraph for complex multi-agent workflows
 - [ ] Add vector index optimization (HNSW vs IVFFlat)
 - [ ] Implement step retry logic with exponential backoff
 - [ ] Add WebSocket support for real-time updates
