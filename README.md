@@ -25,7 +25,7 @@ This project demonstrates a scalable agentic AI architecture with two specialize
 
 ## 🏗️ Architecture
 
-![AWS Architecture Diagram showing VPC with public/private subnets, Load Balancer, ECS Cluster with Planner and Worker containers, Aurora PostgreSQL, Redis, Secrets Manager, and CloudWatch Logs](assets/images/architecture-diagram.png)
+![AWS Architecture Diagram showing VPC with public/private subnets, Load Balancer, ECS Cluster with Planner and Worker containers, Aurora PostgreSQL, Redis, Secrets Manager, and CloudWatch Logs](assets/images/arch-image.png)
 
 The system follows a microservices architecture deployed on AWS:
 
@@ -75,8 +75,7 @@ The system follows a microservices architecture deployed on AWS:
 agenticai-redis-auroro/
 ├── assets/
 │   └── images/               # Documentation images
-│       ├── architecture-diagram.png  # AWS architecture diagram
-│       └── README.md         # Image specifications
+│       └── arch-image.png    # AWS architecture diagram
 ├── agentic-code/
 │   ├── services/
 │   │   ├── common/           # Shared modules
