@@ -99,30 +99,66 @@ agenticai-redis-auroro/
 - Docker
 - jq (for JSON parsing in examples)
 
-### Step 1: Provision Infrastructure
+### Step 1: Configure Database Credentials
+
+Create a `terraform.tfvars` file with your database credentials:
 
 ```bash
 cd agentic-code/terraform
+cp terraform.tfvars.example terraform.tfvars
+```
+
+Edit `terraform.tfvars` and set secure credentials:
+
+```hcl
+# Required: Database credentials
+db_username = "appuser"
+db_password = "YourSecurePassword123!"  # Must be at least 8 characters
+db_name     = "agentic"
+
+# Optional: Customize other settings
+aws_region  = "us-west-2"
+project_name = "agentic-sample"
+```
+
+⚠️ **IMPORTANT**: The `terraform.tfvars` file is gitignored and should NEVER be committed to version control.
+
+### Step 2: Provision Infrastructure
+
+```bash
 terraform init
 terraform apply
 ```
 
+Review the plan and type `yes` to proceed.
+
 This creates:
+- **AWS Secrets Manager secret** with your database credentials
 - VPC with public/private subnets across 2 AZs
 - ElastiCache Redis cluster
 - Aurora PostgreSQL Serverless v2 cluster with pgvector
 - ECS Fargate cluster with task definitions
 - Application Load Balancer
 - ECR repositories
-- Security groups and IAM roles
+- Security groups and IAM roles with Secrets Manager access
 
-### Step 2: Build & Push Docker Images
+### Step 3: Build & Push Docker Images
 
-Get ECR repository URLs from Terraform outputs:
+Get infrastructure details from Terraform outputs:
 
 ```bash
+# ECR repositories for Docker images
 terraform output ecr_planner_repo
 terraform output ecr_worker_repo
+
+# Database secret information
+terraform output db_secret_arn
+terraform output db_secret_name
+
+# Service endpoints
+terraform output planner_url
+terraform output redis_endpoint
+terraform output aurora_endpoint
 ```
 
 Authenticate Docker to ECR:
@@ -151,7 +187,7 @@ docker build -t ${WORKER_REPO}:latest -f agentic-code/services/worker/Dockerfile
 docker push ${WORKER_REPO}:latest
 ```
 
-### Step 3: Deploy Services
+### Step 4: Deploy Services
 
 Update ECS services to use the new images (automatic if using `:latest` tag):
 
@@ -262,54 +298,135 @@ curl "http://<planner_url>/health" | jq
 
 ## 🔧 Configuration
 
+### Database Credentials (Secrets Manager)
+
+Database credentials are securely managed via AWS Secrets Manager:
+
+**Initial Setup** (via `terraform.tfvars`):
+- `db_username`: Aurora master username
+- `db_password`: Aurora master password (min 8 chars, validated)
+- `db_name`: Database name
+
+**Runtime Access**:
+- ECS tasks automatically retrieve credentials from Secrets Manager
+- IAM roles enforce least-privilege access
+- Credentials are injected as environment variables at task startup
+
+**View/Update Secrets** (after deployment):
+```bash
+# View secret metadata
+aws secretsmanager describe-secret --secret-id agentic-sample-db-credentials
+
+# Retrieve secret value (requires permissions)
+aws secretsmanager get-secret-value --secret-id agentic-sample-db-credentials | jq -r .SecretString
+
+# Update password
+aws secretsmanager update-secret \
+  --secret-id agentic-sample-db-credentials \
+  --secret-string '{"username":"appuser","password":"NewSecurePassword456!","dbname":"agentic"}'
+```
+
+**After updating secrets**, restart ECS services to pick up new values:
+```bash
+aws ecs update-service --cluster agentic-sample-cluster \
+  --service agentic-sample-planner-svc --force-new-deployment
+
+aws ecs update-service --cluster agentic-sample-cluster \
+  --service agentic-sample-worker-svc --force-new-deployment
+```
+
 ### Environment Variables
 
-**Planner Agent:**
-- `REDIS_HOST`: ElastiCache endpoint (auto-injected by ECS)
-- `REDIS_PORT`: Redis port (default: 6379)
-- `DB_HOST`: Aurora writer endpoint (auto-injected)
-- `DB_PORT`: PostgreSQL port (default: 5432)
-- `DB_NAME`: Database name (default: agentic)
-- `DB_USER`: Database username
-- `DB_PASSWORD`: Database password
+**Planner & Worker Agents receive:**
+- `REDIS_HOST`: ElastiCache endpoint (auto-injected by Terraform)
+- `REDIS_PORT`: Redis port (6379)
+- `AURORA_HOST`: Aurora writer endpoint (auto-injected by Terraform)
+- `AURORA_PORT`: PostgreSQL port (5432)
+- `AURORA_DB`: Database name (from Secrets Manager)
+- `AURORA_USER`: Database username (from Secrets Manager)
+- `AURORA_PASSWORD`: Database password (from Secrets Manager)
+- `QUEUE_KEY`: Redis queue key (agent:queue)
+- `EMBED_DIM`: Embedding dimension (384)
 
-**Worker Agent:**
-- Same as Planner, plus:
+**Worker Agent only:**
 - `POLL_SECONDS`: Task polling interval (default: 2)
 
 ### Terraform Variables
 
-Edit `agentic-code/terraform/variables.tf`:
+Create `terraform.tfvars` (from `terraform.tfvars.example`):
 
 ```hcl
-variable "aws_region" { default = "us-west-2" }
-variable "redis_node_type" { default = "cache.t4g.micro" }
-variable "aurora_engine_version" { default = "16.6" }
-variable "aurora_min_acu" { default = 0.5 }
-variable "aurora_max_acu" { default = 2 }
+# Required
+db_username = "appuser"
+db_password = "YourSecurePassword123!"
+db_name     = "agentic"
+
+# Optional (with defaults)
+aws_region            = "us-west-2"
+project_name          = "agentic-sample"
+redis_node_type       = "cache.t4g.micro"
+aurora_engine_version = "16.6"
+aurora_min_acu        = 0.5
+aurora_max_acu        = 2
 ```
 
 ## 🔒 Security Considerations
 
-### Current Implementation (Demo)
-⚠️ **WARNING**: The current setup uses demo credentials hardcoded in `variables.tf`:
-- `db_username`: appuser
-- `db_password`: ChangeMe123!ChangeMe123!
+### Current Implementation
 
-### Production Recommendations
+✅ **Secure Credential Management**:
+- Database credentials are stored in **AWS Secrets Manager**
+- ECS tasks retrieve credentials securely at runtime via IAM roles
+- Credentials are never exposed in Terraform state or environment variables
+- `terraform.tfvars` is gitignored to prevent accidental commits
 
-1. **Use AWS Secrets Manager**:
+✅ **IAM Security**:
+- Task execution role has limited permissions to read secrets
+- Services run in private subnets with NAT gateway for outbound access
+- Security groups restrict network access to required ports only
+
+### Production Enhancements
+
+While the current setup follows security best practices, consider these additional hardening measures for production:
+
+1. **Enable Secret Rotation**:
    ```bash
-   aws secretsmanager create-secret --name agentic/db/password \
-     --secret-string '{"password":"<strong-password>"}'
+   aws secretsmanager rotate-secret \
+     --secret-id agentic-sample-db-credentials \
+     --rotation-lambda-arn <rotation-lambda-arn>
    ```
 
-2. **Enable VPC Endpoints**: Add VPC endpoints for ECR, Secrets Manager, CloudWatch
-3. **Enable Aurora Encryption**: Use KMS for data-at-rest encryption
-4. **Implement IAM Roles**: Use task-level IAM roles instead of credentials
-5. **Enable WAF**: Add AWS WAF rules to ALB
-6. **Rotate Credentials**: Implement automatic secret rotation
-7. **Network Isolation**: Ensure services run in private subnets with NAT gateway
+2. **Enable VPC Endpoints**: Add VPC endpoints for ECR, Secrets Manager, CloudWatch to avoid internet traffic:
+   ```hcl
+   # In terraform/main.tf
+   resource "aws_vpc_endpoint" "secretsmanager" {
+     vpc_id            = aws_vpc.this.id
+     service_name      = "com.amazonaws.${var.aws_region}.secretsmanager"
+     vpc_endpoint_type = "Interface"
+     subnet_ids        = [aws_subnet.private_a.id, aws_subnet.private_b.id]
+     security_group_ids = [aws_security_group.vpc_endpoints.id]
+   }
+   ```
+
+3. **Enable Aurora Encryption**: Add KMS encryption for data-at-rest:
+   ```hcl
+   resource "aws_rds_cluster" "aurora" {
+     # ... existing config ...
+     storage_encrypted = true
+     kms_key_id       = aws_kms_key.aurora.arn
+   }
+   ```
+
+4. **Enable CloudTrail**: Monitor Secrets Manager access:
+   ```bash
+   aws cloudtrail lookup-events \
+     --lookup-attributes AttributeKey=ResourceName,AttributeValue=agentic-sample-db-credentials
+   ```
+
+5. **Enable WAF**: Add AWS WAF rules to ALB for protection against common attacks
+6. **Implement Network ACLs**: Add network ACLs for defense in depth
+7. **Enable GuardDuty**: Monitor for suspicious activity across your AWS account
+8. **Audit IAM Policies**: Regularly review and tighten IAM permissions
 
 ## 📊 Monitoring & Logging
 
@@ -407,17 +524,26 @@ pytest tests/ -v --cov=services
 
 ## 📝 Notes
 
+- **Secrets Management**: Database credentials are stored in AWS Secrets Manager and never exposed in Terraform state, logs, or environment variable listings. The Terraform state only contains the secret ARN, not the actual credentials.
+
 - **pgvector Index Type**: If your Aurora version doesn't support HNSW indexing, modify `services/common/db.py` to use `ivfflat`:
   ```sql
   CREATE INDEX IF NOT EXISTS semantic_memories_embedding_idx 
   ON semantic_memories USING ivfflat(embedding vector_cosine_ops);
   ```
 
-- **Cost Optimization**: Aurora Serverless v2 scales down to 0.5 ACU when idle. Consider pausing non-production clusters.
+- **Cost Optimization**: Aurora Serverless v2 scales down to 0.5 ACU when idle. Consider pausing non-production clusters or using Aurora Serverless v1 with auto-pause for development environments.
 
 - **Scaling**: Adjust ECS task count in `terraform/main.tf` based on workload:
   ```hcl
   desired_count = 2  # Increase for higher throughput
+  ```
+
+- **Credential Rotation**: To rotate database credentials, update the secret in Secrets Manager, then update the Aurora master password separately:
+  ```bash
+  # Update Aurora password to match new secret
+  aws rds modify-db-cluster --db-cluster-identifier agentic-sample-aurora \
+    --master-user-password "NewPassword" --apply-immediately
   ```
 
 ## 🤝 Contributing

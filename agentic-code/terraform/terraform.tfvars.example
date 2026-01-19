@@ -1,0 +1,30 @@
+# Example Terraform Variables File
+# Copy this file to terraform.tfvars and update with your actual values
+# NEVER commit terraform.tfvars to version control!
+
+# AWS Region
+aws_region = "us-west-2"
+
+# Project name (used for resource naming)
+project_name = "agentic-sample"
+
+# Database Credentials (REQUIRED)
+# These will be stored securely in AWS Secrets Manager
+db_username = "appuser"
+db_password = "YourSecurePassword123!"  # Change this! Min 8 chars, include uppercase, lowercase, and special chars
+db_name     = "agentic"
+
+# Redis Configuration
+redis_node_type = "cache.t4g.micro"
+
+# Aurora PostgreSQL Configuration
+aurora_engine_version = "16.6"
+aurora_min_acu        = 0.5
+aurora_max_acu        = 2
+
+# VPC CIDR Configuration (optional - defaults provided)
+# vpc_cidr              = "10.10.0.0/16"
+# public_subnet_a_cidr  = "10.10.1.0/24"
+# public_subnet_b_cidr  = "10.10.2.0/24"
+# private_subnet_a_cidr = "10.10.11.0/24"
+# private_subnet_b_cidr = "10.10.12.0/24"

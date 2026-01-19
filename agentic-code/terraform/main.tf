@@ -337,13 +337,7 @@ resource "aws_iam_role_policy_attachment" "task_execution_policy" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
-resource "aws_iam_role" "task_role" {
-  name               = "${local.name}-ecs-task-role"
-  assume_role_policy = data.aws_iam_policy_document.ecs_task_assume.json
-  tags               = local.tags
-}
-
-# Read DB creds from Secrets Manager (optional)
+# IAM policy to read DB credentials from Secrets Manager
 data "aws_iam_policy_document" "secrets_read" {
   statement {
     actions   = ["secretsmanager:GetSecretValue"]
@@ -354,11 +348,19 @@ data "aws_iam_policy_document" "secrets_read" {
 resource "aws_iam_policy" "secrets_read" {
   name   = "${local.name}-secrets-read"
   policy = data.aws_iam_policy_document.secrets_read.json
+  tags   = local.tags
 }
 
-resource "aws_iam_role_policy_attachment" "task_secrets_read" {
-  role       = aws_iam_role.task_role.name
+# Attach secrets policy to EXECUTION role (required for ECS to pull secrets at task startup)
+resource "aws_iam_role_policy_attachment" "task_execution_secrets_read" {
+  role       = aws_iam_role.task_execution.name
   policy_arn = aws_iam_policy.secrets_read.arn
+}
+
+resource "aws_iam_role" "task_role" {
+  name               = "${local.name}-ecs-task-role"
+  assume_role_policy = data.aws_iam_policy_document.ecs_task_assume.json
+  tags               = local.tags
 }
 
 # -----------------------------
@@ -438,11 +440,13 @@ resource "aws_ecs_task_definition" "planner" {
         { name = "REDIS_PORT", value = "6379" },
         { name = "AURORA_HOST", value = aws_rds_cluster.aurora.endpoint },
         { name = "AURORA_PORT", value = "5432" },
-        { name = "AURORA_DB", value = var.db_name },
-        { name = "AURORA_USER", value = var.db_username },
-        { name = "AURORA_PASSWORD", value = var.db_password },
         { name = "QUEUE_KEY", value = "agent:queue" },
         { name = "EMBED_DIM", value = "384" }
+      ]
+      secrets = [
+        { name = "AURORA_DB", valueFrom = "${aws_secretsmanager_secret.db.arn}:dbname::" },
+        { name = "AURORA_USER", valueFrom = "${aws_secretsmanager_secret.db.arn}:username::" },
+        { name = "AURORA_PASSWORD", valueFrom = "${aws_secretsmanager_secret.db.arn}:password::" }
       ]
       logConfiguration = {
         logDriver = "awslogs"
@@ -477,12 +481,14 @@ resource "aws_ecs_task_definition" "worker" {
         { name = "REDIS_PORT", value = "6379" },
         { name = "AURORA_HOST", value = aws_rds_cluster.aurora.endpoint },
         { name = "AURORA_PORT", value = "5432" },
-        { name = "AURORA_DB", value = var.db_name },
-        { name = "AURORA_USER", value = var.db_username },
-        { name = "AURORA_PASSWORD", value = var.db_password },
         { name = "QUEUE_KEY", value = "agent:queue" },
         { name = "POLL_SECONDS", value = "2" },
         { name = "EMBED_DIM", value = "384" }
+      ]
+      secrets = [
+        { name = "AURORA_DB", valueFrom = "${aws_secretsmanager_secret.db.arn}:dbname::" },
+        { name = "AURORA_USER", valueFrom = "${aws_secretsmanager_secret.db.arn}:username::" },
+        { name = "AURORA_PASSWORD", valueFrom = "${aws_secretsmanager_secret.db.arn}:password::" }
       ]
       logConfiguration = {
         logDriver = "awslogs"

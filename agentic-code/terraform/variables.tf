@@ -29,7 +29,26 @@ variable "aurora_engine_version" {
 variable "aurora_min_acu" { type = number, default = 0.5 }
 variable "aurora_max_acu" { type = number, default = 2 }
 
-# Demo credentials (do NOT commit real secrets)
-variable "db_username" { type = string, default = "appuser" }
-variable "db_password" { type = string, default = "ChangeMe123!ChangeMe123!" }
-variable "db_name"     { type = string, default = "agentic" }
+# Database credentials - MUST be provided via terraform.tfvars or environment variables
+# NEVER commit these values to version control
+variable "db_username" {
+  type        = string
+  description = "Aurora PostgreSQL master username"
+  sensitive   = true
+}
+
+variable "db_password" {
+  type        = string
+  description = "Aurora PostgreSQL master password (min 8 chars, must include uppercase, lowercase, and special chars)"
+  sensitive   = true
+  validation {
+    condition     = length(var.db_password) >= 8
+    error_message = "Database password must be at least 8 characters long."
+  }
+}
+
+variable "db_name" {
+  type        = string
+  description = "Aurora PostgreSQL database name"
+  default     = "agentic"
+}
